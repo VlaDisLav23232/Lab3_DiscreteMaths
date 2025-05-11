@@ -47,8 +47,6 @@
 #### Базовий клас `State`
 Абстрактний клас, що визначає інтерфейс для всіх станів.
 ```python
-# filepath: c:\Studying\Discrete mathematics\Labs\Lab 5\Lab3_DiscreteMaths\regex.py
-# ...existing code...
 class State(ABC):
     """Abstract base class for all states in the finite state machine.
     States represent different parts of a regex pattern and define how to match characters."""
@@ -58,16 +56,18 @@ class State(ABC):
 
     @abstractmethod
     def check_self(self, char: str) -> bool:
-# ...existing code...
+        pass
+
     def check_next(self, next_char: str) -> State | Exception:
-# ...existing code...
+        for state in self.next_states:
+            if state.check_self(next_char):
+                return state
+        raise NotImplementedError("rejected string")
 ```
 
 #### `StartState`
 Початковий стан, сам по собі не відповідає жодному символу.
 ```python
-# filepath: c:\Studying\Discrete mathematics\Labs\Lab 5\Lab3_DiscreteMaths\regex.py
-# ...existing code...
 class StartState(State):
     """Initial state of the FSM that doesn't match any character itself."""
     def __init__(self):
@@ -75,14 +75,11 @@ class StartState(State):
 
     def check_self(self, char):
         return False
-# ...existing code...
 ```
 
 #### `TerminationState`
 Кінцевий стан, що позначає успішне завершення розбору.
 ```python
-# filepath: c:\Studying\Discrete mathematics\Labs\Lab 5\Lab3_DiscreteMaths\regex.py
-# ...existing code...
 class TerminationState(State):
     """Final state of the FSM indicating successful pattern match."""
     def __init__(self) -> None:
@@ -90,14 +87,11 @@ class TerminationState(State):
 
     def check_self(self, char: str) -> bool:
         return False
-# ...existing code...
 ```
 
 #### `AsciiState`
 Відповідає конкретному символу.
 ```python
-# filepath: c:\Studying\Discrete mathematics\Labs\Lab 5\Lab3_DiscreteMaths\regex.py
-# ...existing code...
 class AsciiState(State):
     """State that matches a specific character like 'a' or '1'."""
     def __init__(self, symbol: str) -> None:
@@ -106,14 +100,11 @@ class AsciiState(State):
 
     def check_self(self, curr_char: str) -> bool:
         return self.curr_sym == curr_char
-# ...existing code...
 ```
 
 #### `DotState`
 Відповідає будь-якому одному символу (оператор `.`).
 ```python
-# filepath: c:\Studying\Discrete mathematics\Labs\Lab 5\Lab3_DiscreteMaths\regex.py
-# ...existing code...
 class DotState(State):
     """State for the dot operator (.) that matches any single character."""
     def __init__(self):
@@ -121,29 +112,44 @@ class DotState(State):
 
     def check_self(self, char: str):
         return True
-# ...existing code...
 ```
 
 #### `CharacterClassState`
 Відповідає символу з певного набору або діапазону (наприклад, `[a-zA-Z0-9]`, `[^0-9]`).
 ```python
-# filepath: c:\Studying\Discrete mathematics\Labs\Lab 5\Lab3_DiscreteMaths\regex.py
-# ...existing code...
 class CharacterClassState(State):
     """State for character classes like [a-z0-9] that match any character in the specified set."""
     def __init__(self, class_spec: str):
-# ...existing code...
+                self.next_states = []
+        self.char_ranges = []
+        self.individual_chars = set()
+        self.negated = False
+
+        if class_spec and class_spec[0] == '^':
+            self.negated = True
+            class_spec = class_spec[1:]
+
+        i = 0
+        while i < len(class_spec):
+            if i + 2 < len(class_spec) and class_spec[i+1] == '-':
+                self.char_ranges.append((class_spec[i], class_spec[i+2]))
+                i += 3
+            else:
+                self.individual_chars.add(class_spec[i])
+                i += 1
     def check_self(self, char: str) -> bool:
-# ...existing code...
+        in_class = any(ord(start) <= ord(char) <= ord(end) for\
+                       start, end in self.char_ranges)
+        if not in_class:
+            in_class = char in self.individual_chars
+
+        return not in_class if self.negated else in_class
 ```
 
 #### `StarState` та `PlusState`
 Реалізують оператори `*` (нуль або більше) та `+` (один або більше) відповідно. Вони "обгортають" попередній стан (`checking_state`) і делегують йому перевірку символу.
 ```python
-# filepath: c:\Studying\Discrete mathematics\Labs\Lab 5\Lab3_DiscreteMaths\regex.py
-# ...existing code...
 class StarState(State):
-# ...existing code...
     def __init__(self, checking_state: State):
 # ...existing code...
         self.checking_state = checking_state
@@ -152,14 +158,12 @@ class StarState(State):
         return self.checking_state.check_self(char)
 
 class PlusState(State):
-# ...existing code...
     def __init__(self, checking_state: State):
 # ...existing code...
         self.checking_state = checking_state
 
     def check_self(self, char):
         return self.checking_state.check_self(char)
-# ...existing code...
 ```
 У конструкторі `RegexFSM` ці стани додають самі себе до своїх `next_states`, щоб забезпечити можливість повторення. `StarState` також дозволяє "пропустити" `checking_state`, що реалізується через епсилон-переходи.
 
@@ -205,19 +209,6 @@ class PlusState(State):
         *   Можливий перехід назад на `S2` (для наступного символу з `[a-c]`, реалізуючи `+`)
         *   Можливий перехід на `S3` (якщо частина `[a-c]+` завершена і очікується 'd')
 *   `S3` -> `S4` (Після успішної перевірки 'd' переходимо до кінцевого стану)
-
-**Текстове представлення логіки переходів:**
-
-```
-(Start) --epsilon--> (PlusState_for_[a-c])
-                      ^        |
-                      |        | (char in [a-c])
-                      |________| (loop for +)
-                          |
-                          | (char in [a-c], then next is 'd')
-                          v
-                      (AsciiState_for_d) --char='d'--> (Termination)
-```
 
 #### 2. Перевірка рядка "abd"
 
